@@ -1,0 +1,13 @@
+{
+    "available_simulation_data": [
+        {
+            "model_id": "CVS6000_VALVE",
+            "display_name": "CVS 6000D — Blue Valve",
+            "parent_folder_path": "simulated_data/CVS_6000D",
+            "cad_path": "CAD/cvs6000_valve.stl",
+            "image_captures_path": "ImageCaptures/",
+            "laser_point_cloud_path": "LaserPointCloud/valve_simulated_laser_scan_180deg.ply",
+            "video_path": "Video/Valve_Inspection_vid.mp4"
+        }
+    ]
+}
