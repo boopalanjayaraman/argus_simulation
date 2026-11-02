@@ -1,0 +1,196 @@
+<!doctype html>
+<meta charset="utf-8"><style data-dc-design-system-vars>@layer{:root{--bg:#0a0b10;--surface-1:#12141c;--surface-2:#1a1d28;--surface-3:#252936;--line:#2a2e3c;--line-strong:#454b5e;--text:#f3f4f9;--text-2:#b3b8c9;--text-3:#8d93a8;--accent:#a594ff;--accent-soft:#231f45;--on-primary:#0a0b10;--pass:#4be0a0;--pass-soft:#10291f;--warn:#ffb547;--warn-soft:#2e2210;--fail:#ff7468;--fail-soft:#33171a;--info:#79c7ff;--info-soft:#122636;--paper:#f7f7fa;--paper-line:#d9dbe3;--paper-ink:#12141c;--paper-muted:#4d5365;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;--radius-sm:6px;--radius-md:8px;--radius-lg:8px;--radius-chip:6px;--font-sans:"Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;--font-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;--text-display:600 32px/1.15 var(--font-sans);--text-title:600 18px/1.3 var(--font-sans);--text-label:600 14px/1.35 var(--font-sans);--text-body:400 14px/1.5 var(--font-sans);--text-small:400 13px/1.45 var(--font-sans);--text-micro:500 12px/1.4 var(--font-sans);--text-data:400 12.5px/1.5 var(--font-mono);}}</style>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Argus Simulator</title>
+<script src="./vendor/react.js"></script>
+<script src="./vendor/react-dom.js"></script>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ds/argus/components/bundle.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:"Plus Jakarta Sans";src:url("./assets/8aea221eefef8bf9b0cc09584a58cbc0.woff2") format("woff2");font-weight:200 800;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url("./assets/9c72b1b66e4186aa4069ee86a7121f97.woff2") format("woff2");font-weight:100 800;font-display:swap}
+body{margin:0;background:#0A0B10}
+</style>
+</helmet>
+<div class="ar-app" style="--accent: #6FD6E8; --accent-soft: #10292F">
+  <header class="ar-top">
+    <div class="ar-logo" style="cursor: default">
+      <svg viewBox="0 0 26 26" fill="none" aria-hidden="true"><circle cx="13" cy="13" r="11.5" stroke="#6FD6E8" stroke-width="1.5"></circle><path d="M10 8.5v9l8-4.5Z" fill="#6FD6E8"></path></svg>
+      Argus Simulator
+    </div>
+    <span class="ar-badge plain">Prepared evidence replay</span>
+    <div class="ar-spacer"></div>
+    <span class="{{apiClass}}" role="status">{{apiLabel}}</span>
+  </header>
+
+  <div class="ar-scroll"><main class="ar-page" style="padding-top: 24px">
+    <div class="ar-split">
+      <form class="ar-card pad ar-side" style="display: flex; flex-direction: column; gap: 16px" aria-label="Replay setup">
+        <div class="ar-field">
+          <label for="scenario">Scenario</label>
+          <select id="scenario" class="ar-select" value="{{scenario}}" onChange="{{onScenario}}" disabled="{{locked}}">
+            <option value="blue">CVS 6000D — Blue Valve</option>
+            <option value="grey">CVS 6000D — Grey Valve</option>
+            <option value="missing">CVS 6000D — Blue Valve (incomplete)</option>
+          </select>
+        </div>
+        <div class="ar-field">
+          <label for="api-url">Argus API URL</label>
+          <input id="api-url" class="ar-input ar-mono" type="url" value="{{url}}" onChange="{{onUrl}}" disabled="{{locked}}">
+        </div>
+        <div class="ar-field">
+          <label for="session-id">Inspection Session ID</label>
+          <input id="session-id" class="ar-input ar-mono" type="text" placeholder="Paste from Argus" value="{{sid}}" onChange="{{onSid}}" disabled="{{locked}}">
+          <span class="ar-small" style="color: {{sessionColor}}">{{sessionNote}}</span>
+        </div>
+        <button type="button" class="ar-btn primary" disabled="{{sendOff}}" onClick="{{send}}">Send Simulated Data</button>
+        <sc-if value="{{sending}}" hint-placeholder-val="{{ false }}">
+          <div class="ar-bar">
+            <button type="button" class="ar-btn secondary" style="flex: 1 1 auto" onClick="{{stop}}">Stop</button>
+          </div>
+          <button type="button" class="ar-btn ghost sm" onClick="{{closeFromArgus}}">Prototype: terminate from Argus</button>
+        </sc-if>
+        <sc-if value="{{canReplay}}" hint-placeholder-val="{{ false }}">
+          <button type="button" class="ar-btn secondary" onClick="{{replay}}">Replay with a new session</button>
+        </sc-if>
+        <p class="ar-small">{{helper}}</p>
+      </form>
+
+      <div class="ar-grow" style="display: flex; flex-direction: column; gap: 16px">
+        <section class="ar-card pad" aria-label="Delivery status" style="display: flex; flex-direction: column; gap: 14px">
+          <div class="ar-bar" style="justify-content: space-between">
+            <h1 class="ar-h2" style="font-size: 22px">{{title}}</h1>
+            <span class="ar-mono ar-small">{{meta}}</span>
+          </div>
+          <sc-if value="{{note}}" hint-placeholder-val="{{ false }}"><div class="{{noteClass}}">{{note}}</div></sc-if>
+          <div class="ar-meter"><i style="width: {{pct}}%"></i></div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 12px">
+            <sc-for list="{{counters}}" as="c" hint-placeholder-count="4"><div><div class="ar-micro">{{c.k}}</div><div class="ar-mono" style="font-size: 22px; color: {{c.c}}">{{c.v}}</div></div></sc-for>
+          </div>
+          <dl class="ar-dl" style="grid-template-columns: 120px minmax(0, 1fr)">
+            <dt>Latest file</dt><dd class="ar-mono">{{latest}}</dd>
+            <dt>Server response</dt><dd class="ar-mono">{{ack}}</dd>
+          </dl>
+        </section>
+
+        <section class="ar-card" aria-label="Files in this scenario" style="overflow: hidden">
+          <div class="ar-tabs" role="tablist" style="padding: 4px 20px 0; border-bottom: 1px solid var(--line)">
+            <sc-for list="{{tabs}}" as="t" hint-placeholder-count="3">
+              <button type="button" class="ar-tab" role="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}">{{t.label}} <b>{{t.n}}</b></button>
+            </sc-for>
+          </div>
+          <div style="max-height: 340px; overflow-y: auto">
+            <sc-for list="{{files}}" as="f" hint-placeholder-count="6">
+              <div class="ar-row static" style="grid-template-columns: 44px minmax(0, 1fr) 90px 76px 190px; min-height: 52px; padding-block: 6px">
+                <span style="display: flex; align-items: center; justify-content: center; width: 44px; height: 36px; overflow: hidden; background: var(--surface-2); border-radius: 8px; color: var(--text-2)">
+                  <sc-if value="{{f.src}}" hint-placeholder-val="{{ false }}"><img src="{{f.src}}" alt="" style="display: block; width: 100%; height: 100%; object-fit: cover"></sc-if>
+                  <sc-if value="{{f.noSrc}}" hint-placeholder-val="{{ true }}"><svg class="ar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="{{f.icon}}"></path></svg></sc-if>
+                </span>
+                <span class="ar-mono" style="overflow-wrap: anywhere">{{f.name}}</span>
+                <span class="ar-micro">{{f.detail}}</span>
+                <span class="ar-mono ar-micro">{{f.at}}</span>
+                <span><span class="{{f.cls}}">{{f.status}}</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+const BLOB = (id) => '/_blob/' + id;
+const ICON = {
+  video: 'M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM17 10l5-3v10l-5-3',
+  cube: 'M12 2l9 5v10l-9 5-9-5V7ZM12 22V12M21 7l-9 5-9-5'
+};
+const VIDEO_THUMB = BLOB('dfb7afed5e4911f33b630078aee90ba8');
+const PHOTOS = [
+  ['shot_02_front_flange.jpg', 7.2, 'e5e292a2f0336137b34811d895a3250d'], ['shot_03_bonnet.jpg', 12, '3e27f1f864e33b78e03ac4d368a0d595'],
+  ['shot_04_body_nameplate.jpg', 16.8, '59a45af86756249882b1bf8ded33c16b'], ['shot_05_actuator.jpg', 21.6, 'a23692111ef1441782462469496c8765'],
+  ['shot_06_other_flange.jpg', 26.4, '674e2db9c31b948cfacb50ce02c6c346'], ['shot_07_linkage.jpg', 31.2, '9256c1124af03570fabfafae2b823bd1']
+].map(([name, at, id]) => ({ name, at, src: BLOB(id), detail: '6.2 MB', kind: 'photos' }));
+const segName = (i) => { const s = Math.floor(i * 8 / 26); return 'shot_0' + (s + 1) + '_' + String(i - Math.ceil(s * 26 / 8)).padStart(3, '0') + '.mp4'; };
+const VIDEOS = Array.from({ length: 26 }, (_, i) => ({ name: segName(i), at: i * 1.5, src: i % 5 === 0 ? VIDEO_THUMB : '', detail: '8.2 MB', kind: 'videos' }));
+const CHUNKS = Array.from({ length: 18 }, (_, i) => ({ name: 'chunk_' + String(i + 1).padStart(4, '0') + '.ply', at: 7.6 + i * 1.6, src: '', detail: (47800 + (i * 137) % 900).toLocaleString('en') + ' pts', kind: 'chunks' }));
+const ALL = [...VIDEOS, ...PHOTOS, ...CHUNKS].sort((a, b) => a.at - b.at);
+const offset = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + (s % 60).toFixed(1).padStart(4, '0');
+const C = { ok: '#4BE0A0', warn: '#FFB547', bad: '#FF7468', muted: '#B3B8C9', text: '#F3F4F9' };
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { phase: 'ready', scenario: 'blue', url: 'http://localhost:8000', sid: 'insp-125', t: 0, tab: 'videos' };
+  }
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (this.state.phase !== 'sending') return;
+      this.setState((s) => {
+        const t = s.t + 0.4;
+        return t >= 40.5 ? { t: 41, phase: 'finished' } : { t };
+      });
+    }, 250);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() {
+    const s = this.state;
+    const reachable = /localhost|127\.0\.0\.1|argus/i.test(s.url);
+    const validId = /^insp-\d+$/.test(s.sid.trim());
+    const missing = s.scenario === 'missing';
+    const phase = s.phase;
+    const sent = phase === 'ready' ? [] : ALL.filter((f) => f.at <= s.t);
+    const count = (k) => sent.filter((f) => f.kind === k).length;
+    const notSent = ALL.length - sent.length;
+    const canSend = phase === 'ready' && reachable && validId && !missing;
+    const counter = (k, v, c) => ({ k, v, c: c || C.text });
+    const counters = [counter('Video segments', count('videos') + ' / 26'), counter('Photographs', count('photos') + ' / 6'), counter('Point-cloud chunks', count('chunks') + ' / 18'), counter('Errors', missing && phase === 'ready' ? '1' : '0', missing && phase === 'ready' ? C.bad : C.ok)];
+    let view;
+    if (phase === 'sending') view = { title: 'Sending', meta: offset(s.t) + ' of 00:40 · ' + sent.length + ' of 50', note: '', noteClass: '', ack: 'accepted: true · evidenceId ev-' + String(sent.length).padStart(4, '0') + ' · queued' };
+    else if (phase === 'finished') view = { title: 'All files sent / 0 failed', meta: '50 of 50', note: 'Stream finished — end inspection in Argus to generate dossier.', noteClass: 'ar-note ok', ack: 'POST /complete acknowledged · READY_TO_CLOSE' };
+    else if (phase === 'closed') view = { title: 'Inspection closed by Argus', meta: sent.length + ' acknowledged · ' + notSent + ' not sent', note: 'Scheduled sends were cancelled. Unsent files will not be retried.', noteClass: 'ar-note', ack: '409 SESSION_CLOSED · no retry' };
+    else if (phase === 'stopped') view = { title: 'Replay stopped', meta: sent.length + ' acknowledged · ' + notSent + ' not sent', note: 'The inspection stays open in Argus. Close it from there.', noteClass: 'ar-note', ack: 'accepted: true · evidenceId ev-' + String(sent.length).padStart(4, '0') + ' · queued' };
+    else if (!reachable) view = { title: 'Cannot send yet', meta: '0 of 50', note: 'Argus does not respond at this URL. Check the address and that Argus is running.', noteClass: 'ar-note', ack: '—' };
+    else if (missing) view = { title: 'Cannot send yet', meta: '0 of 50', note: 'chunk_0004.ply is missing from this scenario folder. Restore it before sending.', noteClass: 'ar-note', ack: '—' };
+    else if (!validId) view = { title: 'Ready to send', meta: '50 files · 40 s', note: '', noteClass: '', ack: '—' };
+    else view = { title: 'Ready to send', meta: '50 files · 40 s', note: '', noteClass: '', ack: '—' };
+    const statusOf = (f) => {
+      if (missing && f.name === 'chunk_0004.ply') return ['Missing on disk', 'ar-badge fail'];
+      if (f.at <= s.t && phase !== 'ready') return ['Acknowledged', 'ar-badge pass'];
+      if (phase === 'closed') return ['Not sent: session closed', 'ar-badge warn'];
+      if (phase === 'stopped') return ['Not sent: stopped', 'ar-badge warn'];
+      return ['Scheduled', 'ar-badge'];
+    };
+    const files = ALL.filter((f) => f.kind === s.tab).map((f) => {
+      const st = statusOf(f);
+      return { name: f.name, detail: f.detail, at: offset(f.at), src: f.src, noSrc: !f.src, icon: f.kind === 'videos' ? ICON.video : ICON.cube, status: st[0], cls: st[1] };
+    });
+    const session = !reachable ? ['Cannot check session', C.bad] : !s.sid.trim() ? ['Paste the session ID shown in Argus', C.muted]
+      : !validId ? ['Session not found. Check the ID in Argus.', C.bad]
+      : phase === 'closed' ? ['Session status: Terminated', C.bad] : phase === 'finished' ? ['Session status: Ready to Close', C.ok]
+      : phase === 'sending' ? ['Session open: receiving evidence', C.ok] : ['Session found: Waiting', C.ok];
+    const latest = sent.length && phase !== 'ready' ? sent[sent.length - 1].name : '—';
+    return {
+      ...view, counters, files, latest: phase === 'finished' ? 'POST /complete' : latest,
+      apiLabel: reachable ? 'Argus API reachable' : 'Argus API unreachable', apiClass: reachable ? 'ar-badge pass' : 'ar-badge fail',
+      scenario: s.scenario, url: s.url, sid: s.sid, locked: phase === 'sending',
+      onScenario: (e) => this.setState({ scenario: e.target.value, phase: 'ready', t: 0 }), onUrl: (e) => this.setState({ url: e.target.value }), onSid: (e) => this.setState({ sid: e.target.value }),
+      sessionNote: session[0], sessionColor: session[1], sendOff: !canSend,
+      send: () => this.setState({ phase: 'sending', t: 0.4 }), stop: () => this.setState({ phase: 'stopped' }), closeFromArgus: () => this.setState({ phase: 'closed' }),
+      replay: () => this.setState({ phase: 'ready', t: 0, sid: '' }),
+      sending: phase === 'sending', canReplay: ['finished', 'closed', 'stopped'].includes(phase),
+      helper: phase === 'sending' ? 'Stop ends this replay only. The inspection is closed from Argus.' : phase === 'ready' ? 'Files go out once, at their scheduled offsets.' : 'Each replay needs a new inspection from Argus.',
+      pct: Math.round(sent.length / ALL.length * 100),
+      tabs: [['videos', 'Videos', 26], ['photos', 'Photographs', 6], ['chunks', 'Laser point-cloud chunks', 18]].map(([id, label, n]) => ({ label, n, on: s.tab === id ? 'true' : 'false', pick: () => this.setState({ tab: id }) }))
+    };
+  }
+}
+</script>
+</body>
+</html>
