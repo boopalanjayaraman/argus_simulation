@@ -21,6 +21,23 @@ Out of scope: UI polish (S04), any media generation/analysis.
 
 - [ ] Against mock Argus: offsets, ordering, dedupe-on-retry, `409` stop, `/complete` only on full ack (TechStack §7 tests 1–8).
 
+## References
+
+- Spec: [Argus_Simulator_Spec.md](../specs/Argus_Simulator_Spec.md) §§4–7 · Tech: [Argus_Simulator_TechStack.md](../specs/Argus_Simulator_TechStack.md) §§5–7 (acceptance tests 1–8) · Argus contract: Argus `docs/specs/Argus_Spec.md` §10.3 / Argus PRD-04 (cross-repo, no relative link)
+- UX: status semantics from [Simulator.dc.html](../ux/Argus%20Simulator%20click-through-html/Simulator.dc.html); engine itself is headless.
+
+## Test Plan (write before implementation — tests fail first, against mock Argus)
+
+- Contract: interleaved MP4/JPG/PLY post at declared offsets with real bytes + exact metadata (`synthetic:true`, pointcloud units/frame); per-source order preserved under overlap.
+- Retry: `429/5xx`/timeout retries with **same `eventId`** + backoff within `RETRY_MAX_ATTEMPTS`; `400/404/409/413/415` never retried; ack counted once per `eventId`.
+- State machine: Stop → no `/complete`, remaining `Not sent`; `409 SESSION_CLOSED` mid-run stops schedule+retries; unreachable Argus → no success shown; `/complete` exactly once only after full ack, session left open.
+- Negative: payload contains no defect/ground-truth keys; closed/invalid session disables Send (real GET, not ID pattern).
+
+## Verification (after implementation)
+
+- [ ] Run this PRD's full test list (TechStack §7 tests 1–8) + Acceptance above against mock, then real Argus PRD-04.
+- [ ] Manual: full send + mid-run Terminate from Argus. No test red/skipped.
+
 ## Review gate
 
 Reply `go PRD-S03` to implement, or edit this file first.

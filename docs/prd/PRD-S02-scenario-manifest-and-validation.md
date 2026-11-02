@@ -22,6 +22,23 @@ Out of scope: sending (S03), Argus-side handling (Argus PRD-04).
 - [ ] Dropdown/list shows exactly the prepared files with real sizes/offsets.
 - [ ] Corrupt manifest (missing file, duplicate sequence, traversal) blocks Send with visible errors.
 
+## References
+
+- Spec: [Argus_Simulator_Spec.md](../specs/Argus_Simulator_Spec.md) §3 · Tech: [Argus_Simulator_TechStack.md](../specs/Argus_Simulator_TechStack.md) §3 · Connector: `src/available_simulations.json` (`model_id`) ↔ Argus `cad_models.json`
+- UX: [Simulator.dc.html](../ux/Argus%20Simulator%20click-through-html/Simulator.dc.html) scenario/file-list states + `bundle.css`; replicate values, don't ship markup.
+
+## Test Plan (write before implementation — tests fail first)
+
+- Unit: manifest schema — rejects `..` traversal, unknown path, bad extension, negative `atMs`, duplicate `eventId`, duplicate per-source `sequence`, missing file; sorts by `atMs` then source `sequence`.
+- Unit: counts/duration computed from real fixture folder (single long MP4 = 1 event valid); `model_id` present and matching Argus registry fixture.
+- Contract: scenario list/manifest/preview APIs return real filenames/sizes/offsets; preview never uploads.
+- Negative: corrupt manifests (each defect above) surface visible errors and block Send — none silently skipped; no ground-truth field accepted in manifest/metadata.
+
+## Verification (after implementation)
+
+- [ ] Run this PRD's full test list + Acceptance above against real `simulated_data/CVS_6000D/`.
+- [ ] Manual: list shows 1 video + 6 photos + 1 point cloud with true sizes. No test red/skipped.
+
 ## Review gate
 
 Reply `go PRD-S02` to implement, or edit this file first.

@@ -22,6 +22,23 @@ Out of scope: engine internals (S03), any authoring/upload-your-own-media UI.
 - [ ] Full demo (§9 of Simulator Spec) runs from this one screen against real Argus.
 - [ ] Stop/closed/disconnect states show truthful Not sent / error rows.
 
+## References
+
+- Spec: [Argus_Simulator_Spec.md](../specs/Argus_Simulator_Spec.md) §§2,7,9 · Tech: [Argus_Simulator_TechStack.md](../specs/Argus_Simulator_TechStack.md) §4
+- UX: [Simulator.dc.html](../ux/Argus%20Simulator%20click-through-html/Simulator.dc.html) (controls, status panel, tabs, pills) + `ds/argus/components/bundle.css` — replicate values/layout, never ship mockup markup.
+
+## Test Plan (write before implementation — tests fail first)
+
+- Unit: view model derives all counters/progress from manifest + acknowledged set (retries don't double-count); Send gating = manifest valid ∧ reachable ∧ session accepting.
+- UI (RTL): controls/tabs/pills render real filenames/sizes/offsets; `202` labelled Accepted never Passed; session status from live GET (valid-looking fake ID shows error).
+- E2E (Playwright + mock Argus): select scenario → validate → Send → counters/latest-file update; Stop and disconnect show truthful Not sent/unreachable states.
+- Negative: preview click triggers zero Argus requests; no defect labels anywhere in rendered DOM.
+
+## Verification (after implementation)
+
+- [ ] Run this PRD's full test list + Acceptance above.
+- [ ] Playwright full demo (Simulator Spec §9) against real Argus. No test red/skipped.
+
 ## Review gate
 
 Reply `go PRD-S04` to implement, or edit this file first.

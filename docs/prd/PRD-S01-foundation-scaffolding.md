@@ -20,6 +20,23 @@ Out of scope: scenario logic (S02), sending (S03), full UI (S04).
 
 - [ ] Both processes run locally; shell matches UX top bar; no token in web bundle.
 
+## References
+
+- Spec: [Argus_Simulator_Spec.md](../specs/Argus_Simulator_Spec.md) §§1–2 · Tech: [Argus_Simulator_TechStack.md](../specs/Argus_Simulator_TechStack.md) §§2–3
+- UX: [Simulator.dc.html](../ux/Argus%20Simulator%20click-through-html/Simulator.dc.html) + `ds/argus/components/bundle.css` — replicate values in Tailwind; never ship mockup markup.
+
+## Test Plan (write before implementation — tests fail first)
+
+- Unit: sender config rejects missing/invalid `ARGUS_BASE_URL`/`SCENARIOS_DIR` with named error.
+- Contract: sender health/scenario list APIs return documented shapes; web calls only sender APIs (no filesystem paths).
+- UI (RTL): shell renders top bar + reachability placeholder, no login.
+- Negative: `ARGUS_INGEST_TOKEN` string must not appear in built web bundle (grep build output).
+
+## Verification (after implementation)
+
+- [ ] Run this PRD's full test list + Acceptance above; builds green.
+- [ ] Playwright smoke: shell renders, sender health OK. No test red/skipped at sign-off.
+
 ## Review gate
 
 Reply `go PRD-S01` to implement, or edit this file first.
