@@ -106,17 +106,18 @@ body{margin:0;background:#0A0B10}
 </div>
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
-const BLOB = (id) => '/_blob/' + id;
+// Design handoff: every colour, type size, spacing value, radius and component style lives in
+// ds/argus/components/bundle.css, not in inline styles. Tokens: ds/argus/tokens.json. Rules of use: ds/argus/README.md.
 const ICON = {
   video: 'M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM17 10l5-3v10l-5-3',
   cube: 'M12 2l9 5v10l-9 5-9-5V7ZM12 22V12M21 7l-9 5-9-5'
 };
-const VIDEO_THUMB = BLOB('dfb7afed5e4911f33b630078aee90ba8');
+const VIDEO_THUMB = './assets/dfb7afed5e4911f33b630078aee90ba8.jpg';
 const PHOTOS = [
-  ['shot_02_front_flange.jpg', 7.2, 'e5e292a2f0336137b34811d895a3250d'], ['shot_03_bonnet.jpg', 12, '3e27f1f864e33b78e03ac4d368a0d595'],
-  ['shot_04_body_nameplate.jpg', 16.8, '59a45af86756249882b1bf8ded33c16b'], ['shot_05_actuator.jpg', 21.6, 'a23692111ef1441782462469496c8765'],
-  ['shot_06_other_flange.jpg', 26.4, '674e2db9c31b948cfacb50ce02c6c346'], ['shot_07_linkage.jpg', 31.2, '9256c1124af03570fabfafae2b823bd1']
-].map(([name, at, id]) => ({ name, at, src: BLOB(id), detail: '6.2 MB', kind: 'photos' }));
+  ['shot_02_front_flange.jpg', 7.2, './assets/e5e292a2f0336137b34811d895a3250d.jpg'], ['shot_03_bonnet.jpg', 12, './assets/3e27f1f864e33b78e03ac4d368a0d595.jpg'],
+  ['shot_04_body_nameplate.jpg', 16.8, './assets/59a45af86756249882b1bf8ded33c16b.jpg'], ['shot_05_actuator.jpg', 21.6, './assets/a23692111ef1441782462469496c8765.jpg'],
+  ['shot_06_other_flange.jpg', 26.4, './assets/674e2db9c31b948cfacb50ce02c6c346.jpg'], ['shot_07_linkage.jpg', 31.2, './assets/9256c1124af03570fabfafae2b823bd1.jpg']
+].map(([name, at, src]) => ({ name, at, src, detail: '6.2 MB', kind: 'photos' }));
 const segName = (i) => { const s = Math.floor(i * 8 / 26); return 'shot_0' + (s + 1) + '_' + String(i - Math.ceil(s * 26 / 8)).padStart(3, '0') + '.mp4'; };
 const VIDEOS = Array.from({ length: 26 }, (_, i) => ({ name: segName(i), at: i * 1.5, src: i % 5 === 0 ? VIDEO_THUMB : '', detail: '8.2 MB', kind: 'videos' }));
 const CHUNKS = Array.from({ length: 18 }, (_, i) => ({ name: 'chunk_' + String(i + 1).padStart(4, '0') + '.ply', at: 7.6 + i * 1.6, src: '', detail: (47800 + (i * 137) % 900).toLocaleString('en') + ' pts', kind: 'chunks' }));

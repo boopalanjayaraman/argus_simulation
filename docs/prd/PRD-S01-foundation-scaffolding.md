@@ -1,6 +1,6 @@
 # PRD-S01 — Foundation Scaffolding (Simulator)
 
-Status: Awaiting review · Source: Simulator TechStack §§2–3 · Depends on: —
+Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: Simulator TechStack §§2–3 · Depends on: —
 
 ## Specs
 

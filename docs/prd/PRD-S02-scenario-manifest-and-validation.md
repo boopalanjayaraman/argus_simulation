@@ -1,6 +1,6 @@
 # PRD-S02 — Scenario Manifest & Validation (Simulator)
 
-Status: Awaiting review · Source: Simulator Spec §3 · TechStack §3 · Depends on: PRD-S01
+Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: Simulator Spec §3 · TechStack §3 · Depends on: PRD-S01
 
 ## Specs
 

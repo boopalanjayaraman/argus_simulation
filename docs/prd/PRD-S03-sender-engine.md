@@ -1,6 +1,6 @@
 # PRD-S03 — Sender Engine: Schedule, Retry, Complete (Simulator)
 
-Status: Awaiting review · Source: Simulator Spec §§4–5 · TechStack §§5–6 · Depends on: PRD-S02 + Argus PRD-04 (contract must exist first)
+Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: Simulator Spec §§4–5 · TechStack §§5–6 · Depends on: PRD-S02 + Argus PRD-04 (contract must exist first)
 
 ## Specs
 

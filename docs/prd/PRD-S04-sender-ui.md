@@ -1,6 +1,6 @@
 # PRD-S04 — Sender UI: Controls, Status, Preview (Simulator)
 
-Status: Awaiting review · Source: Simulator Spec §§2,7 · Depends on: PRD-S02, PRD-S03
+Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: Simulator Spec §§2,7 · Depends on: PRD-S02, PRD-S03
 
 ## Specs
 

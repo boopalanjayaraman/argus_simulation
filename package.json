@@ -1,0 +1,11 @@
+{
+  "name": "argus-simulator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix apps/web run build && npm --prefix apps/sender run build",
+    "start": "npm run build && npm --prefix apps/sender run start",
+    "dev": "npm --prefix apps/sender run dev",
+    "test": "npm --prefix apps/sender run test"
+  }
+}
