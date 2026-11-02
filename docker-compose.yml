@@ -1,0 +1,13 @@
+# Argus Simulator container. Point ARGUS_BASE_URL at the Argus API
+# (host.docker.internal when Argus runs compose in its own repo).
+name: argus-simulator
+services:
+  simulator:
+    build: { context: ., dockerfile: Dockerfile }
+    environment:
+      SIM_PORT: "4173"
+      ARGUS_BASE_URL: ${ARGUS_BASE_URL:-http://host.docker.internal:8000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SERVICE_NAME: argus-simulator
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["4173:4173"]
