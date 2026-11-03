@@ -1,10 +1,10 @@
 # PRD-S04 — Sender UI: Controls, Status, Preview (Simulator)
 
-Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: Simulator Spec §§2,7 · Depends on: PRD-S02, PRD-S03
+Status: Implemented (v2, 03 Nov 2026: session status shows the real Argus lifecycle; closed sessions disable Send; model mismatch warning; retry count) · Source: Simulator Spec §§2,7 · Depends on: PRD-S02, PRD-S03
 
 ## Specs
 
-- Left controls: **Scenario** dropdown (from real scenario folders), **Argus API URL** (persisted locally), **Inspection Session ID** with live session status (`Session found: Waiting/Receiving/Analyzing/Closed` or real error — never inferred from text pattern), one prominent **Send Simulated Data** button (disabled until S03 readiness), caption “Files go out once, at their scheduled offsets”, **Stop** while sending (+ Reset after completion).
+- Left controls: **Scenario** dropdown (from real scenario folders), **Argus API URL** (persisted locally), **Inspection Session ID** with live session status from Argus's `lifecycleStatus` (`Session found: Waiting/Receiving/Analyzing/Ready To Close`; for Finalizing/Completed/Terminated: “Session is Completed. It no longer accepts evidence; start a new inspection in Argus.”; 404: not found) — never inferred from HTTP 200 or the text pattern; a warning when the session pins a different `model_id` than the scenario, one prominent **Send Simulated Data** button (disabled until S03 readiness), caption “Files go out once, at their scheduled offsets”, **Stop** while sending (+ Reset after completion).
 - Right status: `Ready to send / Sending / Stream complete / Stopped / Failed`, real total (`N files · duration`), progress by acknowledged uploads + elapsed replay time, counters `Video segments n/m · Photographs n/m · Point-cloud chunks n/m · Errors n` (all computed), **Latest file** + **Server response** (real filename/HTTP code; `202` never labelled passed).
 - Tabs **Videos N / Photographs N / Laser point-cloud chunks N**: rows with thumbnail/icon, exact filename, size, scheduled offset, status pill (`Scheduled/Sending/Accepted/Retrying/Failed/Not sent`); click previews video/image locally; point-cloud rows show size/point count (optional simple 3D preview, no analysis). No defect labels or accuracy estimates anywhere.
 - Top-right reachability reflects a real API check, not session validity. Disconnected ⇒ `Argus API unreachable`, no fake success.
@@ -13,7 +13,7 @@ Out of scope: engine internals (S03), any authoring/upload-your-own-media UI.
 
 ## Technical Specs
 
-- **Pattern:** UI is a pure view over sender run state (S03 APIs); all counts derived from manifest + acknowledged event set — no duplicated counters in the browser. Session validation debounced; Send gating computed from (manifest valid ∧ API reachable ∧ session accepting).
+- **Pattern:** UI is a pure view over sender run state (S03 APIs); all counts derived from the computed plan + acknowledged event set. Session validation debounced through the sender's `POST /api/validate` → `{reachable, status, lifecycleStatus, model_id, accepting}`; Send gating = plan present ∧ API reachable ∧ `accepting`.
 - **Preview pattern:** sender serves local preview bytes/range requests; previewing never triggers an Argus upload.
 - **Configuration:** API URL + last session ID in `localStorage` only (no server config product); theme tokens from UX bundle.
 
@@ -41,4 +41,4 @@ Out of scope: engine internals (S03), any authoring/upload-your-own-media UI.
 
 ## Review gate
 
-Reply `go PRD-S04` to implement, or edit this file first.
+v2 approved by the user on 03 Nov 2026 (issue #19). Edit this file to change scope.

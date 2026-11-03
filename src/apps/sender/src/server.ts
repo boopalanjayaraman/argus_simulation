@@ -21,6 +21,12 @@ const DEFAULT_ARGUS = process.env.ARGUS_BASE_URL || 'http://localhost:8000';
 const TOKEN = process.env.ARGUS_INGEST_TOKEN || '';
 const IMAGE_INTERVAL_MS = Number(process.env.IMAGE_INTERVAL_MS || 2000);
 const RETRY_MAX = Number(process.env.RETRY_MAX_ATTEMPTS || 3);
+const RETRY_BASE_MS = Number(process.env.RETRY_BASE_MS || 500);
+const RETRY_MAX_MS = Number(process.env.RETRY_MAX_MS || 5000);
+const HTTP_TIMEOUT_MS = Number(process.env.HTTP_TIMEOUT_MS || 30000);
+export const MAX_CONCURRENT_UPLOADS = Math.max(1, Number(process.env.MAX_CONCURRENT_UPLOADS || 3));
+/** Argus lifecycle states that still accept evidence. */
+export const ACCEPTING = ['WAITING', 'RECEIVING', 'ANALYZING', 'READY_TO_CLOSE'];
 
 export interface SimFile { name: string; path: string; size: number }
 export interface Simulation { model_id: string; display_name: string; folder: string; images: SimFile[]; video: SimFile | null; pointcloud: SimFile | null; cad: SimFile | null }
@@ -112,64 +118,107 @@ export function materializeChunks(sim: Simulation, events: SimEvent[]): Map<stri
   return out;
 }
 
-export interface Run { state: string; model_id: string; inspectionId: string; argusBaseUrl: string; sessionStatus: string; startedAt: number; events: SimEvent[]; accepted: number; errors: number; latestFile: string; serverResponse: string; completeSent: boolean; stopped: boolean }
+export interface Run { state: string; model_id: string; inspectionId: string; argusBaseUrl: string; sessionStatus: string; startedAt: number; events: SimEvent[]; accepted: number; errors: number; retries: number; latestFile: string; serverResponse: string; completeSent: boolean; stopped: boolean; closed: boolean; controller: AbortController }
 let run: Run | null = null;
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>(r => { const t = setTimeout(r, ms); signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 
-async function postMultipart(url: string, filePath: string, metadata: any) {
+async function postMultipart(url: string, filePath: string, metadata: any, signal: AbortSignal) {
   const bytes = fs.readFileSync(filePath);
-  const boundary = '----argus' + Date.now().toString(36);
+  const boundary = '----argus' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const head = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="metadata"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${path.basename(filePath)}"\r\nContent-Type: application/octet-stream\r\n\r\n`);
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
   const headers: Record<string, string> = { 'Content-Type': `multipart/form-data; boundary=${boundary}` };
   if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
-  const res = await fetch(url, { method: 'POST', headers, body: Buffer.concat([head, bytes, tail]) });
+  const timeout = AbortSignal.timeout(HTTP_TIMEOUT_MS);
+  const res = await fetch(url, { method: 'POST', headers, body: Buffer.concat([head, bytes, tail]), signal: AbortSignal.any([signal, timeout]) });
   return { status: res.status, body: (await res.text()).slice(0, 500) };
 }
 
-async function uploadWithRetry(argusBase: string, inspectionId: string, sim: Simulation, ev: SimEvent) {
+/** Exponential backoff with full jitter, capped (PRD-S03). */
+export function backoffMs(attempt: number, base = RETRY_BASE_MS, cap = RETRY_MAX_MS, rand = Math.random): number {
+  return Math.round(rand() * Math.min(cap, base * Math.pow(2, attempt - 1)));
+}
+
+/** One event upload: transient 429/5xx/timeouts retried with the SAME
+ * eventId (Argus dedupes on (sessionId,eventId)); 400/404/409/413/415 terminal. */
+async function uploadWithRetry(argusBase: string, inspectionId: string, sim: Simulation, ev: SimEvent, signal: AbortSignal, onRetry: () => void) {
   const url = `${argusBase.replace(/\/$/, '')}/api/v1/inspections/${encodeURIComponent(inspectionId)}/${ev.endpoint}`;
   const metadata = { schemaVersion: '1.0', eventId: ev.eventId, sourceId: ev.sourceId, sequence: ev.sequence, relativeTimeMs: ev.atMs, mediaType: ev.mediaType, synthetic: true, ...(ev.mediaType === 'pointcloud' ? { units: ev.units, coordinateFrame: ev.coordinateFrame } : {}) };
+  const fp = fs.existsSync(path.join(root, ev.path)) ? path.join(root, ev.path) : path.join(root, sim.folder, ev.path);
   let last = { status: 0, body: '' };
   for (let attempt = 1; attempt <= RETRY_MAX; attempt++) {
-    const fp = fs.existsSync(path.join(root, ev.path)) ? path.join(root, ev.path) : path.join(root, sim.folder, ev.path);
-    try { last = await postMultipart(url, fp, metadata); } catch (e: any) { last = { status: 0, body: String(e?.message || e) }; }
-    if (last.status === 202) return last;
-    if ([400, 404, 409, 413, 415].includes(last.status)) return last;
-    if (attempt < RETRY_MAX) await sleep(500 * Math.pow(2, attempt - 1));
+    if (signal.aborted) return { status: 0, body: 'stopped' };
+    try { last = await postMultipart(url, fp, metadata, signal); } catch (e: any) { last = { status: 0, body: String(e?.name === 'TimeoutError' ? `timeout after ${HTTP_TIMEOUT_MS} ms` : e?.message || e) }; }
+    if (last.status === 202 || [400, 401, 404, 409, 413, 415].includes(last.status) || signal.aborted) return last;
+    if (attempt < RETRY_MAX) { onRetry(); await sleep(backoffMs(attempt), signal); }
   }
   return last;
+}
+
+/** Argus session status for a URL + id: reachable, HTTP status, lifecycle. */
+export async function checkSession(argusBaseUrl: string, inspectionId: string) {
+  const base = (argusBaseUrl || DEFAULT_ARGUS).replace(/\/$/, '');
+  try {
+    const r = await fetch(`${base}/api/v1/inspections/${encodeURIComponent(inspectionId)}`, { signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
+    const text = await r.text();
+    let body: any = null; try { body = JSON.parse(text); } catch {}
+    const lifecycleStatus = body?.lifecycleStatus || null;
+    return { reachable: true, status: r.status, lifecycleStatus, model_id: body?.model_id || null, accepting: r.status === 200 && ACCEPTING.includes(lifecycleStatus), body: text.slice(0, 500) };
+  } catch (e: any) { return { reachable: false, status: 0, lifecycleStatus: null, model_id: null, accepting: false, error: String(e?.message || e) }; }
 }
 
 export async function startRun(opts: { model_id: string; argusBaseUrl?: string; inspectionId: string; intervalMs?: number }): Promise<Run> {
   const sim = loadSimulations().find(s => s.model_id === opts.model_id);
   if (!sim) throw new Error(`Unknown model_id: ${opts.model_id}`);
   if (!opts.inspectionId) throw new Error('Inspection Session ID is required');
+  if (run?.state === 'SENDING') throw new Error('A replay is already sending; stop it first');
   const base = (opts.argusBaseUrl || DEFAULT_ARGUS).replace(/\/$/, '');
-  let sessionStatus = 'unknown';
-  try { const r = await fetch(`${base}/api/v1/inspections/${encodeURIComponent(opts.inspectionId)}`); sessionStatus = `${r.status}`; if (r.status === 404) throw new Error('Session not found (404)'); if (r.status === 409) throw new Error('Session closed (409)'); }
-  catch (e: any) { if (!/Session/.test(e.message)) throw new Error(`Argus API unreachable: ${e.message}`); throw e; }
+  const session = await checkSession(base, opts.inspectionId);
+  if (!session.reachable) throw new Error(`Argus API unreachable: ${session.error}`);
+  if (session.status === 404) throw new Error('Session not found (404)');
+  if (!session.accepting) throw new Error(`Session is ${session.lifecycleStatus || `HTTP ${session.status}`}; it no longer accepts evidence. Start a new inspection in Argus.`);
   const events = buildEvents(sim, opts.intervalMs || IMAGE_INTERVAL_MS);
   materializeChunks(sim, events);
-  run = { state: 'SENDING', model_id: opts.model_id, inspectionId: opts.inspectionId, argusBaseUrl: base, sessionStatus, startedAt: Date.now(), events: events.map(e => ({ ...e, status: 'Scheduled' })), accepted: 0, errors: 0, latestFile: '', serverResponse: '', completeSent: false, stopped: false };
+  run = { state: 'SENDING', model_id: opts.model_id, inspectionId: opts.inspectionId, argusBaseUrl: base, sessionStatus: session.lifecycleStatus, startedAt: Date.now(), events: events.map(e => ({ ...e, status: 'Scheduled' })), accepted: 0, errors: 0, retries: 0, latestFile: '', serverResponse: '', completeSent: false, stopped: false, closed: false, controller: new AbortController() };
   const current = run;
+  const signal = current.controller.signal;
+  // Each source (camera, photos, laser) is its own ordered queue; sources
+  // overlap, bounded by MAX_CONCURRENT_UPLOADS in-flight requests overall.
+  let inFlight = 0; const waiting: (() => void)[] = [];
+  const acquire = () => inFlight < MAX_CONCURRENT_UPLOADS ? (inFlight++, Promise.resolve()) : new Promise<void>(r => waiting.push(() => { inFlight++; r(); }));
+  const release = () => { inFlight--; waiting.shift()?.(); };
+  const halt = (label: string) => { for (const x of current.events) if (x.status === 'Scheduled') x.status = label; };
+  const bySource = new Map<string, SimEvent[]>();
+  for (const ev of current.events) { if (!bySource.has(ev.sourceId)) bySource.set(ev.sourceId, []); bySource.get(ev.sourceId)!.push(ev); }
+  for (const list of bySource.values()) list.sort((a, b) => a.sequence - b.sequence);
   (async () => {
     const t0 = Date.now();
-    for (const ev of current.events) {
-      if (current.stopped) { ev.status = 'Not sent'; continue; }
-      const wait = ev.atMs - (Date.now() - t0); if (wait > 0) await sleep(wait);
-      if (current.stopped) { ev.status = 'Not sent'; continue; }
-      ev.status = 'Sending'; current.latestFile = ev.name;
-      const res = await uploadWithRetry(base, opts.inspectionId, sim, ev);
-      current.serverResponse = `${res.status} ${res.body}`;
-      if (res.status === 202) { ev.status = 'Accepted'; current.accepted++; }
-      else if (res.status === 409) { ev.status = 'Failed'; current.errors++; current.events.filter(x => x.status === 'Scheduled').forEach(x => x.status = 'Not sent — session closed'); current.state = 'STOPPED'; break; }
-      else { ev.status = 'Failed'; current.errors++; }
-    }
-    if (current.stopped) { current.state = 'STOPPED'; return; }
-    if (current.state === 'STOPPED') return;
+    await Promise.all([...bySource.values()].map(async list => {
+      for (const ev of list) {
+        if (current.stopped || current.closed) break;
+        const wait = ev.atMs - (Date.now() - t0); if (wait > 0) await sleep(wait, signal);
+        if (current.stopped || current.closed) break;
+        await acquire();
+        try {
+          if (current.stopped || current.closed) break;
+          ev.status = 'Sending'; current.latestFile = ev.name;
+          const res = await uploadWithRetry(base, opts.inspectionId, sim, ev, signal, () => { ev.status = 'Retrying'; current.retries++; });
+          if (current.stopped && res.status !== 202) { ev.status = 'Not sent'; break; }
+          current.serverResponse = `${res.status} ${res.body}`;
+          if (res.status === 202) { ev.status = 'Accepted'; current.accepted++; }
+          else if (res.status === 409) { ev.status = 'Failed'; current.errors++; current.closed = true; current.controller.abort(); halt('Not sent — session closed'); }
+          else { ev.status = 'Failed'; current.errors++; }
+        } finally { release(); }
+      }
+    }));
+    if (current.stopped) { halt('Not sent'); current.state = 'STOPPED'; return; }
+    if (current.closed) { halt('Not sent — session closed'); current.state = 'STOPPED'; return; }
     if (current.accepted === current.events.length) {
-      try { await fetch(`${base}/api/v1/inspections/${encodeURIComponent(opts.inspectionId)}/complete`, { method: 'POST', headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {} }); current.completeSent = true; } catch {}
+      try {
+        const r = await fetch(`${base}/api/v1/inspections/${encodeURIComponent(opts.inspectionId)}/complete`, { method: 'POST', headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
+        current.completeSent = r.ok;
+        current.serverResponse = `${r.status} POST /complete`;
+      } catch (e: any) { current.serverResponse = `/complete failed: ${e?.message || e}`; }
       current.state = 'STREAM_COMPLETE';
     } else current.state = 'FAILED';
   })();
@@ -180,10 +229,18 @@ export async function buildServer() {
   const app = Fastify();
   app.get('/api/simulations', async () => ({ simulations: loadSimulations().map(s => { const plan = buildEvents(s); return { ...s, plan, totals: { video: plan.filter(e => e.mediaType === 'video').length, photo: plan.filter(e => e.mediaType === 'photo').length, pointcloud: plan.filter(e => e.mediaType === 'pointcloud').length, total: plan.length } }; }) }));
   app.get('/api/health', async () => ({ ok: true, argusBaseUrl: DEFAULT_ARGUS }));
-  app.get('/api/run', async () => ({ run }));
-  app.post('/api/stop', async () => { if (run) { run.stopped = true; run.state = 'STOPPED'; run.events.filter(e => e.status === 'Scheduled').forEach(e => e.status = 'Not sent'); } return { run }; });
-  app.post('/api/send', async (req: any, reply) => { try { const r = await startRun(req.body); return reply.code(202).send({ run: r }); } catch (e: any) { return reply.code(400).send({ error: String(e.message || e) }); } });
-  app.post('/api/validate', async (req: any) => { const b = req.body || {}; const base = (b.argusBaseUrl || DEFAULT_ARGUS).replace(/\/$/, ''); try { const r = await fetch(`${base}/api/v1/inspections/${encodeURIComponent(b.inspectionId)}`); return { reachable: true, status: r.status, body: (await r.text()).slice(0, 500) }; } catch (e: any) { return { reachable: false, error: String(e.message || e) }; } });
+  const view = (r: Run | null) => r && { ...r, controller: undefined };
+  app.get('/api/run', async () => ({ run: view(run) }));
+  app.post('/api/stop', async () => { if (run && run.state === 'SENDING') { run.stopped = true; run.state = 'STOPPED'; run.controller.abort(); run.events.filter(e => ['Scheduled', 'Retrying'].includes(e.status || '')).forEach(e => e.status = 'Not sent'); } return { run: view(run) }; });
+  app.post('/api/send', async (req: any, reply) => { try { const r = await startRun(req.body); return reply.code(202).send({ run: view(r) }); } catch (e: any) { return reply.code(400).send({ error: String(e.message || e) }); } });
+  app.post('/api/validate', async (req: any) => {
+    const b = req.body || {};
+    if (String(b.inspectionId || '').trim()) return checkSession(b.argusBaseUrl, b.inspectionId);
+    // No session yet: reachability only (Argus GET /api/v1/health).
+    const base = (b.argusBaseUrl || DEFAULT_ARGUS).replace(/\/$/, '');
+    try { const r = await fetch(`${base}/api/v1/health`, { signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) }); return { reachable: r.ok, status: r.status, accepting: false }; }
+    catch (e: any) { return { reachable: false, status: 0, accepting: false, error: String(e?.message || e) }; }
+  });
   app.get('/preview', async (req: any, reply) => { const sim = loadSimulations().find(s => s.model_id === req.query.model_id); const rel = req.query.path || ''; const folderAbs = sim ? path.join(root, sim.folder) : ''; const full = path.join(folderAbs, rel); if (!sim || !full.startsWith(folderAbs)) return reply.code(400).send({ error: 'bad preview' }); const mime: Record<string,string> = { '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.mp4':'video/mp4', '.ply':'application/octet-stream' }; return reply.type(mime[path.extname(full)] || 'application/octet-stream').send(fs.createReadStream(full)); });
   const webDist = path.join(root, 'src/apps/web/dist');
   if (fs.existsSync(webDist)) await app.register(fastifyStatic, { root: webDist });

@@ -1,44 +1,38 @@
-# PRD-S02 — Scenario Manifest & Validation (Simulator)
+# PRD-S02 — Scenario Registry & Computed Schedule (Simulator)
 
-Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: Simulator Spec §3 · TechStack §3 · Depends on: PRD-S01
+Status: Implemented (v2, 03 Nov 2026: spec aligned to the implementation — registry + computed schedule replace per-scenario `scenario.json`; second scenario `CVS3000_VALVE`) · Source: Simulator Spec §3 · TechStack §3 · Depends on: PRD-S01
 
 ## Specs
 
-- Scenario layout: `scenarios/cvs6000d-blue-demo/{scenario.json, video/, photos/, pointcloud/}`. Build the first manifest from the real prepared assets now in `simulated_data/CVS_6000D/` (1 long MP4 sent as one file is valid; 6 PNGs; PLY scan) — counts/duration computed, never assumed (not fixed 26/6/18/40 s).
-- `scenario.json`: `{ schemaVersion:"1.0", scenarioId, displayName, durationMs, events[] }`; each event `{ eventId, sourceId, sequence, atMs, mediaType, path }` (+ `segmentIndex/durationMs` video; `units/coordinateFrame` point cloud, truthful only; pose only if known).
-- Startup validation: enumerate actual files under scenario root, reject `..` traversal/unknown paths, check extensions (`mp4`, `jpg/png`, `ply/pcd`) + size limits, sort by `atMs` then per-source `sequence`, detect duplicate event IDs/per-source sequences, negative offsets, missing files. Bad items show visible errors — never silently skipped. Local preview without uploading.
-- `src/available_simulations.json` carries `model_id` (e.g. `CVS6000_VALVE`) + `display_name` per scenario — the connector to Argus `cad_models.json`. The UI/operator picks the Argus CAD by this ID, not by path. Legacy root-level `available_simulations.json` (Windows backslashes, `Image_Captures`) is superseded by this file; the scenario manifest remains the runtime source once built. Ground truth, if any, lives outside served assets; sender never reads/displays/sends it. No filename/metadata may encode a verdict.
+- **Scenario registry:** `src/available_simulations.json`, one entry per scenario: `model_id` (connector to Argus `cad_models.json`), `display_name`, `parent_folder_path`, `cad_path` (reference only, never sent), `image_captures_path`, `laser_point_cloud_path`, `video_path`. Paths are forward-slash, relative to the repo root.
+- **Scenarios:** `CVS6000_VALVE` — *CVS 6000D — Blue Valve* (`simulated_data/CVS_6000D`, grey valve before finishing: 1 MP4, 6 photos, 1 PLY). `CVS3000_VALVE` — *CVS 3000 — Finished Valve (painted, nameplated)* (`simulated_data/CVS_3000`: same CAD as CVS 6000D, new evidence after painting and name plating: 1 MP4, 12 photos, 1 PLY). How the finished valve differs from the unfinished one is part of the demo.
+- **Computed schedule (decided):** no hand-authored manifest. At load the sender derives events from the files: video cut into `VIDEO_CHUNK_MS` segments, photos in name order, the PLY split into `POINTCLOUD_CHUNK_POINTS` slices using the header's vertex stride; offsets from `IMAGE_INTERVAL_MS`; per-source `sequence` and stable event IDs; point clouds labelled `units: mm`, `coordinateFrame: scanner_local`. Counts and duration are computed, never assumed.
+- **Validation:** a missing registry folder/file yields no events for that source and the UI shows what was found; previews never upload. No filename or metadata may encode a verdict; no ground truth is read, displayed or sent.
 
-Out of scope: sending (S03), Argus-side handling (Argus PRD-04).
+Out of scope: sending (S03), Argus-side handling (Argus PRD-04), hand-authored per-event schedules.
 
 ## Technical Specs
 
-- **Pattern:** validate-once-at-startup (Zod schema + filesystem cross-check), manifest frozen per run in S03. Sender APIs: list scenarios, get manifest with per-file size/offset/status, preview bytes.
-- **Configuration:** `SCENARIOS_DIR`, `MAX_FILE_MB` per media type in sender env; limits mirrored in error messages.
-- **Scripts:** `scripts/build-manifest` generates `scenario.json` from a prepared folder (explicit `atMs` schedule input; tool never invents timing silently — schedule is reviewed data).
+- **Pattern:** `loadSimulations()` reads the registry; `buildEvents()` computes the plan; `materializeChunks()` writes `.chunks/<model_id>/` once (ffmpeg segments; PLY slices regenerated when their size disagrees with the header stride). Sender APIs: `GET /api/simulations` (registry + plan + totals), `GET /preview` (path-checked under the scenario folder).
+- **Configuration:** `IMAGE_INTERVAL_MS` (2000), `VIDEO_CHUNK_MS` (2000), `POINTCLOUD_CHUNK_POINTS` (50000).
 
 ## Acceptance
 
-- [ ] Dropdown/list shows exactly the prepared files with real sizes/offsets.
-- [ ] Corrupt manifest (missing file, duplicate sequence, traversal) blocks Send with visible errors.
+- [x] Dropdown lists both scenarios; file tabs show the computed segments, photos and chunks with real sizes/point counts and offsets.
+- [x] `CVS3000_VALVE` plans 12 photos and the after-paint video.
 
 ## References
 
 - Spec: [Argus_Simulator_Spec.md](../specs/Argus_Simulator_Spec.md) §3 · Tech: [Argus_Simulator_TechStack.md](../specs/Argus_Simulator_TechStack.md) §3 · Connector: `src/available_simulations.json` (`model_id`) ↔ Argus `cad_models.json`
-- UX: [Simulator.dc.html](../ux/Argus%20Simulator%20click-through-html/Simulator.dc.html) scenario/file-list states + `bundle.css`; replicate values, don't ship markup.
 
-## Test Plan (write before implementation — tests fail first)
+## Test Plan
 
-- Unit: manifest schema — rejects `..` traversal, unknown path, bad extension, negative `atMs`, duplicate `eventId`, duplicate per-source `sequence`, missing file; sorts by `atMs` then source `sequence`.
-- Unit: counts/duration computed from real fixture folder (single long MP4 = 1 event valid); `model_id` present and matching Argus registry fixture.
-- Contract: scenario list/manifest/preview APIs return real filenames/sizes/offsets; preview never uploads.
-- Negative: corrupt manifests (each defect above) surface visible errors and block Send — none silently skipped; no ground-truth field accepted in manifest/metadata.
+- Vitest: registry entries load (6 photos for CVS 6000D, 12 + after-paint video for CVS 3000); video and point cloud split into >1 chunks with positive point counts; photo offsets follow the interval; PLY stride from header (17 bytes for x/y/z float + 5 uchar).
 
-## Verification (after implementation)
+## Verification
 
-- [ ] Run this PRD's full test list + Acceptance above against real `simulated_data/CVS_6000D/`.
-- [ ] Manual: list shows 1 video + 6 photos + 1 point cloud with true sizes. No test red/skipped.
+- [x] Sender Vitest suite green (9/9).
 
 ## Review gate
 
-Reply `go PRD-S02` to implement, or edit this file first.
+v2 approved by the user on 03 Nov 2026 (issues #20, #22). Edit this file to change scope.

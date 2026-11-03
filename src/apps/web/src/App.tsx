@@ -4,7 +4,8 @@ type SimFile = { name: string; path: string; size: number };
 type PlanEvent = SimFile & { mediaType: string; atMs: number; pointCount?: number };
 type Simulation = { model_id: string; display_name: string; folder: string; images: SimFile[]; video: SimFile | null; pointcloud: SimFile | null; plan?: PlanEvent[]; totals?: { video: number; photo: number; pointcloud: number; total: number } };
 type RunEvent = SimFile & { mediaType: string; status: string };
-type Run = { state: string; events: RunEvent[]; accepted: number; errors: number; latestFile: string; serverResponse: string; completeSent: boolean };
+type Run = { state: string; events: RunEvent[]; accepted: number; errors: number; retries?: number; latestFile: string; serverResponse: string; completeSent: boolean };
+const titleCase = (s: string) => (s || '').toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 const ICON = { video: 'M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM17 10l5-3v10l-5-3', cube: 'M12 2l9 5v10l-9 5-9-5V7ZM12 22V12M21 7l-9 5-9-5' };
 const off = (ms: number) => String(Math.floor(ms / 60000)).padStart(2, '0') + ':' + (ms % 60000 / 1000).toFixed(1).padStart(4, '0');
@@ -20,6 +21,7 @@ export default function App() {
   const [reachable, setReachable] = useState(false);
   const [sessionOk, setSessionOk] = useState(false);
   const [sessionNote, setSessionNote] = useState('Paste the session ID shown in Argus');
+  const [sessionModel, setSessionModel] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const deb = useRef<any>(null);
 
@@ -28,11 +30,26 @@ export default function App() {
 
   useEffect(() => { fetch('/api/simulations').then(r => r.json()).then(j => { setSims(j.simulations); if (j.simulations[0]) setModelId(j.simulations[0].model_id); }); }, []);
   useEffect(() => { const t = setInterval(() => fetch('/api/run').then(r => r.json()).then(j => setRun(j.run)).catch(() => {}), 1000); return () => clearInterval(t); }, []);
+  // After a reload, show the scenario of the replay the sender is reporting.
+  const [runSynced, setRunSynced] = useState(false);
+  useEffect(() => { if (!runSynced && run && (run as any).model_id && sims.some(x => x.model_id === (run as any).model_id)) { setModelId((run as any).model_id); setRunSynced(true); } }, [run, sims, runSynced]);
+  useEffect(() => { validate(url, sid); }, []);
 
   const validate = (u: string, s: string) => {
-    if (!s.trim()) { setSessionNote('Paste the session ID shown in Argus'); setSessionOk(false); return; }
+    if (!s.trim()) {
+      setSessionNote('Paste the session ID shown in Argus'); setSessionOk(false);
+      fetch('/api/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ argusBaseUrl: u }) }).then(r => r.json()).then(j => setReachable(!!j.reachable)).catch(() => setReachable(false));
+      return;
+    }
     fetch('/api/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ argusBaseUrl: u, inspectionId: s }) })
-      .then(r => r.json()).then(j => { setReachable(!!j.reachable); const ok = !!j.reachable && j.status === 200; setSessionOk(ok); setSessionNote(!j.reachable ? 'Cannot check session' : ok ? 'Session found: Waiting' : 'Session not found. Check the ID in Argus.'); })
+      .then(r => r.json()).then(j => {
+        setReachable(!!j.reachable); setSessionOk(!!j.accepting); setSessionModel(j.model_id || null);
+        setSessionNote(!j.reachable ? 'Cannot check session'
+          : j.status === 404 ? 'Session not found. Check the ID in Argus.'
+          : j.status !== 200 ? `Argus answered HTTP ${j.status}`
+          : j.accepting ? `Session found: ${titleCase(j.lifecycleStatus)}`
+          : `Session is ${titleCase(j.lifecycleStatus || 'closed')}. It no longer accepts evidence; start a new inspection in Argus.`);
+      })
       .catch(() => { setReachable(false); setSessionOk(false); });
   };
   const onInput = (u: string, s: string) => { clearTimeout(deb.current); deb.current = setTimeout(() => validate(u, s), 400); };
@@ -66,8 +83,10 @@ export default function App() {
               <input id="api-url" className="ar-input ar-mono" type="url" value={url} disabled={!!sending} onChange={e => { setUrl(e.target.value); onInput(e.target.value, sid); }} /></div>
             <div className="ar-field"><label htmlFor="session-id">Inspection Session ID</label>
               <input id="session-id" className="ar-input ar-mono" type="text" placeholder="Paste from Argus" value={sid} disabled={!!sending} onChange={e => { setSid(e.target.value); onInput(url, e.target.value); }} />
-              <span className="ar-small" style={{ color: sessionOk ? '#4BE0A0' : undefined }}>{sessionNote}</span></div>
+              <span className="ar-small" style={{ color: sessionOk ? '#4BE0A0' : undefined }}>{sessionNote}</span>
+              {sessionOk && sessionModel && cur && sessionModel !== cur.model_id && <span className="ar-small" style={{ color: '#FFC554' }}>This session pins {sessionModel}; the scenario is {cur.model_id}. Its rules were chosen for {sessionModel}.</span>}</div>
             <button type="button" className="ar-btn primary" disabled={!(reachable && sessionOk && cur && !sending)} onClick={send}>Send Simulated Data</button>
+            {sending && <span className="ar-small">Camera, photo and laser sources send in parallel, each in its own order.</span>}
             {sending && <div className="ar-bar"><button type="button" className="ar-btn secondary" style={{ flex: '1 1 auto' }} onClick={stop}>Stop</button></div>}
             {finished && <button type="button" className="ar-btn secondary" onClick={() => { setSid(''); setRun(null); }}>Replay with a new session</button>}
             <p className="ar-small">{sending ? 'Stop ends this replay only. The inspection is closed from Argus.' : finished ? 'Each replay needs a new inspection from Argus.' : 'Files go out once, at their scheduled offsets.'}</p>
@@ -85,7 +104,7 @@ export default function App() {
                 <div><div className="ar-micro">Video segments</div><div className="ar-mono" style={{ fontSize: 22 }}>{count('video')}</div></div>
                 <div><div className="ar-micro">Photographs</div><div className="ar-mono" style={{ fontSize: 22 }}>{count('photo')}</div></div>
                 <div><div className="ar-micro">Point-cloud chunks</div><div className="ar-mono" style={{ fontSize: 22 }}>{count('pointcloud')}</div></div>
-                <div><div className="ar-micro">Errors</div><div className="ar-mono" style={{ fontSize: 22, color: run?.errors ? '#FF7468' : '#4BE0A0' }}>{run?.errors ?? 0}</div></div>
+                <div><div className="ar-micro">Errors</div><div className="ar-mono" style={{ fontSize: 22, color: run?.errors ? '#FF7468' : '#4BE0A0' }}>{run?.errors ?? 0}{run?.retries ? <span className="ar-micro"> · {run.retries} retries</span> : null}</div></div>
               </div>
               <dl className="ar-dl" style={{ gridTemplateColumns: '120px minmax(0,1fr)' }}>
                 <dt>Latest file</dt><dd className="ar-mono">{run?.completeSent ? 'POST /complete' : (run?.latestFile || '—')}</dd>
@@ -102,7 +121,7 @@ export default function App() {
               <div style={{ maxHeight: 340, overflowY: 'auto' }}>
                 {all.filter(f => f.kind === tab).map(f => {
                   const status = st[f.name] || 'Scheduled';
-                  const cls = status === 'Accepted' ? 'ar-badge pass' : (status.startsWith('Not sent') || status === 'Failed') ? 'ar-badge warn' : 'ar-badge';
+                  const cls = status === 'Accepted' ? 'ar-badge pass' : (status.startsWith('Not sent') || status === 'Failed') ? 'ar-badge warn' : status === 'Retrying' ? 'ar-badge info' : 'ar-badge';
                   return (
                     <div key={f.name} className="ar-row static" style={{ gridTemplateColumns: '44px minmax(0,1fr) 90px 76px 190px', minHeight: 52, paddingBlock: 6 }}>
                       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 36, overflow: 'hidden', background: 'var(--surface-2)', borderRadius: 8, color: 'var(--text-2)' }}>

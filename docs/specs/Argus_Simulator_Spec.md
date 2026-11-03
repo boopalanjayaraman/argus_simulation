@@ -1,7 +1,7 @@
 # ARGUS SIMULATOR — Feature Specification (Prepared Evidence Sender)
 
 **Repo:** `argus-simulator`  
-**Version:** 0.9 · 02 November 2026  
+**Version:** 0.9.1 · 03 November 2026 (§§2.1, 3, 4 updated to the implementation)  
 **Status:** Hackathon MVP feature requirements  
 **Companion:** `argus/SPEC.md` v0.9; communicates **only** through documented Argus API endpoints  
 **Purpose:** Standalone specification of Simulator features, prepared-file scheduling, API behavior, operator controls, and acceptance criteria.
@@ -22,7 +22,7 @@ Top bar: play icon + **Argus Simulator**, descriptor **Prepared evidence replay*
 
 - **Scenario** dropdown populated from actual prepared scenario directories (example: `CVS 6000D — Blue Valve`). No uploaded-media authoring UI is required.
 - **Argus API URL** editable input (example: `http://localhost:8000`); persist in browser local state/config if useful, not a separate configuration product.
-- **Inspection Session ID** input. Query `GET /api/v1/inspections/:id` and display `Session found: Waiting`, `Receiving`, `Analyzing`, `Closed` or meaningful errors; do not infer validity from text pattern alone.
+- **Inspection Session ID** input. Query `GET /api/v1/inspections/:id` and display the **actual lifecycle** (`Session found: Waiting / Receiving / Analyzing / Ready To Close`) or, for `FINALIZING / COMPLETED / TERMINATED`, `Session is Completed. It no longer accepts evidence; start a new inspection in Argus.` Send is enabled only for an accepting lifecycle; do not infer validity from HTTP 200 or the text pattern alone. If the Argus session pins a different `model_id` than the chosen scenario, show a warning.
 - One prominent **Send Simulated Data** button enabled only when the manifest is valid, API reachable and target session accepts evidence.
 - Caption **Files go out once, at their scheduled offsets**. No hidden media-generation process. While sending, provide **Stop** (plus optional Reset after completion).
 - Simulator does **not** create an Argus inspection; operator must first create it from Argus Home.
@@ -36,89 +36,64 @@ Top bar: play icon + **Argus Simulator**, descriptor **Prepared evidence replay*
 - Rows: preview thumbnail/icon, exact filename, file size, scheduled replay time offset, status pill (`Scheduled`, `Sending`, `Accepted`, `Retrying`, `Failed`, `Not sent`). Clicking a compatible file opens a local preview (video player or image); point-cloud rows show size/point count when available, optionally simple 3D preview but no geometric analysis.
 - No displayed defect labels, analysis findings or accuracy estimates. Those exist only in Argus.
 
-## 3. Prepared scenario directory
+## 3. Prepared scenarios *(updated 03 Nov 2026 to the implementation)*
 
-All content exists **before** the app starts:
+All content exists **before** the app starts. Scenarios are registered in **`src/available_simulations.json`**; the replay schedule is **computed from the prepared files at load time**, not authored in a per-scenario manifest (the earlier `scenarios/<id>/scenario.json` design is superseded).
 
 ```text
-scenarios/
-  cvs6000d-blue-demo/
-    scenario.json
-    video/
-      shot_01_000.mp4
-      shot_01_001.mp4
-      ...
-    photos/
-      shot_02_front_flange.jpg
-      shot_03_bonnet.jpg
-      ...
-    pointcloud/
-      scan_0001.ply
-      scan_0002.ply
-      ...
+src/available_simulations.json        # scenario registry (one entry per scenario)
+simulated_data/
+  CVS_6000D/                          # model_id CVS6000_VALVE — grey valve before finishing
+    CAD/cvs6000_valve.stl
+    ImageCaptures/1.png … 6.png
+    LaserPointCloud/valve_simulated_laser_scan_180deg.ply
+    Video/Valve_Inspection_vid.mp4
+  CVS_3000/                           # model_id CVS3000_VALVE — same CAD, after painting and name plating
+    CAD/cvs3000_valve.stl             # identical to cvs6000_valve.stl (same sha256)
+    ImageCaptures/01_first.png … 06_last.png   (12 photos)
+    LaserPointCloud/valve_simulated_laser_scan_180deg.ply
+    Video/valve_inspection_afterpaint.mp4
+.chunks/<model_id>/                   # generated stream chunks (gitignored cache)
 ```
 
-**Important:** These filenames are examples. Neither the client nor manifest parser assumes 8 shots, 26 segments, 6 photos, 18 point-cloud chunks or a fixed 40-second duration. Scenario may contain a single long original MP4; send as one file. Runtime does not require Python, FFmpeg, image generation or STEP rendering.
-
-**Optional authoring-only ground truth:** If scenario creators keep private defect ground truth for evaluation, store it *outside the served manifest and preferably outside deployed Simulator public assets*. Sender never reads, displays or transmits it. Filenames, feature hints and other metadata must not encode a desired inspection verdict.
-
-### 3.1 Manifest format (`scenario.json`)
+### 3.1 Scenario registry (`available_simulations.json`)
 
 ```json
 {
-  "schemaVersion": "1.0",
-  "scenarioId": "cvs6000d-blue-demo",
-  "displayName": "CVS 6000D — Blue Valve",
-  "durationMs": 40000,
-  "events": [
+  "available_simulation_data": [
     {
-      "eventId": "vid-0001",
-      "sourceId": "camera-01",
-      "sequence": 1,
-      "atMs": 0,
-      "mediaType": "video",
-      "path": "video/shot_01_000.mp4",
-      "segmentIndex": 0,
-      "durationMs": 1500
-    },
-    {
-      "eventId": "img-0001",
-      "sourceId": "camera-photos-01",
-      "sequence": 1,
-      "atMs": 4800,
-      "mediaType": "photo",
-      "path": "photos/shot_02_front_flange.jpg"
-    },
-    {
-      "eventId": "ply-0001",
-      "sourceId": "laser-01",
-      "sequence": 1,
-      "atMs": 5100,
-      "mediaType": "pointcloud",
-      "path": "pointcloud/scan_0001.ply",
-      "units": "mm",
-      "coordinateFrame": "scanner_local"
+      "model_id": "CVS3000_VALVE",
+      "display_name": "CVS 3000 — Finished Valve (painted, nameplated)",
+      "parent_folder_path": "simulated_data/CVS_3000",
+      "cad_path": "CAD/cvs3000_valve.stl",
+      "image_captures_path": "ImageCaptures/",
+      "laser_point_cloud_path": "LaserPointCloud/valve_simulated_laser_scan_180deg.ply",
+      "video_path": "Video/valve_inspection_afterpaint.mp4"
     }
   ]
 }
 ```
 
-This is an **illustrative** schedule and must be replaced by real prepared assets. `atMs` represents intended replay timing, not measured physical synchronization. `units`/`coordinateFrame` must accurately describe the contained geometry. Include calibrated pose and transform **only when actually known**; never label scanner-local points `cad_world` merely to make Argus appear registered.
+`model_id` is the connector to Argus's `cad_models.json` (the operator creates the Argus inspection for the same model). The CAD file is listed for reference only and is never sent.
 
-### 3.2 Local validation at startup
+### 3.2 Computed schedule
 
-- Read and validate each `scenario.json` once; enumerate actual files under allowed scenario root, reject `..` path traversal and unknown paths.
-- Verify extensions and size limits before enabling Send; `mp4` video, `jpg/png` images, `ply/pcd` scans.
-- Sort by scheduled offset, and within each `sourceId` by `sequence`; detect duplicate per-source sequence IDs/event IDs, negative time offsets and missing files.
-- Show missing/bad items in a visible error state instead of silently skipping them.
-- Provide per-file local preview without uploading to Argus.
+At load the sender turns one scenario into stream events (all counts computed, none hardcoded):
+
+- **Video** (`camera-01`): the single prepared MP4 is cut into `VIDEO_CHUNK_MS` segments (default 2 s, ffmpeg, keyframe-aligned); segment *i* is scheduled at `i × IMAGE_INTERVAL_MS`.
+- **Photographs** (`camera-photos-01`): every file in the image folder, sorted by name; photo *i* at `(i + 1) × IMAGE_INTERVAL_MS`.
+- **Point cloud** (`laser-01`): the PLY is split into `POINTCLOUD_CHUNK_POINTS` vertex slices (default 50 000), stride taken from the PLY header; chunk *i* after the photos. Metadata `units: "mm"`, `coordinateFrame: "scanner_local"` (truthful: no pose is claimed).
+- Event IDs `video-0001`, `photo-0001`, `pointcloud-0001`… per source with monotonic `sequence`; `atMs` is the intended replay offset, not physical synchronisation.
+- Chunks are materialised once into `.chunks/<model_id>/` and regenerated when stale.
+- The file list shows every scheduled event with name, size (or point count) and offset before anything is sent; photos preview locally without uploading.
+- No filename or metadata encodes a verdict; no ground truth exists in the served data.
 
 ## 4. Streaming lifecycle
 
 1. User starts an inspection in **Argus** (e.g. blue-valve recheck) and copies displayed `insp-...` ID.
 2. In Simulator, choose prepared scenario, set **Argus API URL** and **Inspection Session ID**. Backend verifies Argus health/target status.
 3. Click **Send Simulated Data**. Freeze manifest for the run; start a monotonic scheduler and read/send the *actual bytes* at each event's `atMs`.
-4. POST files to three endpoints, allowing independent camera, photograph and laser sources to overlap. Display status immediately on `Sending`; after `202` show `Accepted`; retry transient failures only within configured limits.
+4. POST files to three endpoints. **Each source (camera, photographs, laser) is its own ordered queue and the sources run concurrently**, bounded by `MAX_CONCURRENT_UPLOADS` in-flight requests overall (default 3); within a source, `sequence` order is preserved. Display status immediately on `Sending`; after `202` show `Accepted`; retry transient failures only within configured limits.
 5. Update aggregate counters/progress and Latest file/Server response after every result. Media is sent at most once per manifest event unless an intentional retry occurs using the **same** event ID.
 6. After every manifest event is acknowledged (or intentionally completed in the contractually allowed way), POST `/complete` **once**. Display `Stream complete — Argus inspection remains open.` Do **not** end the Argus inspection.
 7. In Argus, users watch video, photos, point cloud and AI findings appear progressively; only Argus operators choose **End Inspection** or **Terminate Now**.
@@ -178,7 +153,8 @@ If publicly exposed for the hackathon, configure an ingestion token in the serve
 argus-simulator/
   src/apps/web/           # React frontend
   src/apps/sender/        # Node API + scheduler
-  scenarios/          # prepared evidence (may be mounted locally)
+  simulated_data/     # prepared evidence per scenario
+  src/available_simulations.json  # scenario registry
   SPEC.md
 ```
 

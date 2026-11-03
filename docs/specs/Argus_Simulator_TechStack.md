@@ -20,34 +20,28 @@ Simulator is **a simple prepared-file sender**: it lists local scenario media, v
 | Manifest validation | Zod | Validate IDs, paths, types, offsets, sequences, units, frames and missing files |
 | Scheduling | Node monotonic time + bounded timers/async concurrency | Preserve `atMs` replay schedule and per-source order; independent streams may overlap |
 | HTTP client | Native `fetch`/undici, FormData | Send original file bytes; preserve `eventId` on retries; inspect actual HTTP response |
-| Assets | Local or mounted `scenarios/` directory | Prepared files read-only; no database, GCS or CAD processing |
+| Assets | `simulated_data/` + `src/available_simulations.json` (mounted or baked into the image) | Prepared files read-only; no database, GCS or CAD processing |
 | Local run state | In-memory with optional operational log | Single active run; accepted/failed/unsent counters, errors and last server response |
 | Testing | Vitest + Playwright + mock Argus API | Request contract, timing/counts, retries, early closure/stop, absent-media validation |
 | Deployment | Local Node/Vite demo or a Node container with mounted assets | No need for background worker, Kubernetes or cloud object storage |
 
 No Python, model SDK, SAM, rule engine, report renderer, robot controller or audio/acoustic pipeline in this repo.
 
-## 3. Source folder and scheduler
+## 3. Source folder and scheduler *(updated 03 Nov 2026)*
 
 ```text
-argus-simulator/
-  src/apps/web/
-  src/apps/sender/
-  scenarios/
-    cvs6000d-blue-demo/
-      scenario.json
-      video/*.mp4
-      photos/*.{jpg,png}
-      pointcloud/*.{ply,pcd}
-  tests/
-  .env.example
-  SPEC.md
-  TECH_STACK.md
+argus_simulation/
+  src/apps/web/                 React one-page sender
+  src/apps/sender/              Fastify sender: registry, chunking, scheduler, previews
+  src/available_simulations.json  scenario registry (model_id connector to Argus)
+  simulated_data/<scenario>/    prepared CAD (reference only), photos, PLY, MP4
+  .chunks/<model_id>/           generated video segments + PLY slices (gitignored)
+  docs/
 ```
 
-`scenario.json` follows Simulator SPEC §3.1: `schemaVersion`, `scenarioId`, `displayName`, `durationMs`, and an `events[]` collection with `eventId`, `sourceId`, per-source `sequence`, `atMs`, `mediaType`, relative file `path`; video can specify segment index/duration; point-cloud entries additionally have truthful `units` and `coordinateFrame` and optional known pose. Counts such as `26/6/18` and 40 s are **illustrative**.
+Scenarios come from `available_simulations.json`; the schedule is computed from the files (Spec §3.2). **Scheduler:** one ordered queue per `sourceId`; queues run concurrently from a common start time, each event waits for its `atMs`, and a shared semaphore caps in-flight requests at `MAX_CONCURRENT_UPLOADS`. **Retry:** `429`, `5xx`, network errors and `HTTP_TIMEOUT_MS` timeouts retry up to `RETRY_MAX_ATTEMPTS` with exponential backoff and full jitter (`random × min(RETRY_MAX_MS, RETRY_BASE_MS × 2^(n-1))`), always with the **same** `eventId`; `400/401/404/409/413/415` are terminal. A `409 SESSION_CLOSED` halts every source and marks the rest `Not sent — session closed`; Stop aborts in-flight requests.
 
-**Validation before send:** reject missing files, path traversal, unknown extensions, invalid/negative offsets, duplicate event IDs or per-source sequence, contradictory scan units, oversize items and a closed target session. Reveal errors rather than silently omitting files. Do not send `ground_truth`, `defect`, `expectedResult`, predicted rules or requested final statuses in filenames, metadata or payloads. If authoring-only ground truth exists, keep it outside served assets and the sender's accessible manifest.
+**Validation before send:** registry entry and files exist; the target session answers `200` with an **accepting lifecycle** (`WAITING`, `RECEIVING`, `ANALYZING`, `READY_TO_CLOSE`); missing files or a closed session block Send with a visible reason. No `ground_truth`, `defect`, `expectedResult` or verdict fields anywhere.
 
 ## 4. One-page sender features
 
@@ -119,6 +113,6 @@ No call to Argus close or terminate. No automated session creation. The Simulato
 
 ## 8. Environment and change control
 
-Environment: `ARGUS_BASE_URL`, `SCENARIOS_DIR`, optional `ARGUS_INGEST_TOKEN` in **Node sender** (never React bundle). Limit file reads to validated scenario root; use TLS and a server-to-server token or a private network when Argus is externally reachable. Keep sender backend responsible for filesystem access; browser reads only local UI API and file previews.
+Environment: `ARGUS_BASE_URL`, `SCENARIOS_DIR`, `IMAGE_INTERVAL_MS`, `VIDEO_CHUNK_MS`, `POINTCLOUD_CHUNK_POINTS`, `MAX_CONCURRENT_UPLOADS`, `RETRY_MAX_ATTEMPTS`, `RETRY_BASE_MS`, `RETRY_MAX_MS`, `HTTP_TIMEOUT_MS`, optional `ARGUS_INGEST_TOKEN` in **Node sender** (never React bundle). Limit file reads to validated scenario root; use TLS and a server-to-server token or a private network when Argus is externally reachable. Keep sender backend responsible for filesystem access; browser reads only local UI API and file previews.
 
 `argus-simulator/SPEC.md` v0.9 is authoritative for features, files and API. `argus/SPEC.md` v0.9 is authoritative for the server protocol. If the server contract evolves, coordinate an explicit versioned change; two repos should never need a shared database or import each other's source code.

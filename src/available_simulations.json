@@ -8,6 +8,15 @@
             "image_captures_path": "ImageCaptures/",
             "laser_point_cloud_path": "LaserPointCloud/valve_simulated_laser_scan_180deg.ply",
             "video_path": "Video/Valve_Inspection_vid.mp4"
+        },
+        {
+            "model_id": "CVS3000_VALVE",
+            "display_name": "CVS 3000 — Finished Valve (painted, nameplated)",
+            "parent_folder_path": "simulated_data/CVS_3000",
+            "cad_path": "CAD/cvs3000_valve.stl",
+            "image_captures_path": "ImageCaptures/",
+            "laser_point_cloud_path": "LaserPointCloud/valve_simulated_laser_scan_180deg.ply",
+            "video_path": "Video/valve_inspection_afterpaint.mp4"
         }
     ]
 }
