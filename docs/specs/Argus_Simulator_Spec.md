@@ -63,7 +63,7 @@ simulated_data/
   "available_simulation_data": [
     {
       "model_id": "CVS3000_VALVE",
-      "display_name": "CVS 3000 — Finished Valve (painted, nameplated)",
+      "display_name": "Scenario 2 - CVS 6000D — 5 Ton, 48\" Finished Valve (painted, nameplated)",
       "parent_folder_path": "simulated_data/CVS_3000",
       "cad_path": "CAD/cvs3000_valve.stl",
       "image_captures_path": "ImageCaptures/",
