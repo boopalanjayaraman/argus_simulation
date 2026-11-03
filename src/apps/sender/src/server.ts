@@ -5,7 +5,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+// Minimal .env loader (no dependency): repo-root .env, process env wins.
+// Skipped under tests so suites stay hermetic.
+if (!process.env.VITEST) try {
+  const envPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../.env');
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+} catch {}
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const MANIFEST = path.join(root, 'src/available_simulations.json');
 export const PORT = Number(process.env.SIM_PORT || 4173);
 const DEFAULT_ARGUS = process.env.ARGUS_BASE_URL || 'http://localhost:8000';
@@ -144,7 +153,7 @@ export async function startRun(opts: { model_id: string; argusBaseUrl?: string; 
     if (current.stopped) { current.state = 'STOPPED'; return; }
     if (current.state === 'STOPPED') return;
     if (current.accepted === current.events.length) {
-      try { await fetch(`${base}/api/v1/inspections/${encodeURIComponent(opts.inspectionId)}/complete`, { method: 'POST' }); current.completeSent = true; } catch {}
+      try { await fetch(`${base}/api/v1/inspections/${encodeURIComponent(opts.inspectionId)}/complete`, { method: 'POST', headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {} }); current.completeSent = true; } catch {}
       current.state = 'STREAM_COMPLETE';
     } else current.state = 'FAILED';
   })();
@@ -160,7 +169,7 @@ export async function buildServer() {
   app.post('/api/send', async (req: any, reply) => { try { const r = await startRun(req.body); return reply.code(202).send({ run: r }); } catch (e: any) { return reply.code(400).send({ error: String(e.message || e) }); } });
   app.post('/api/validate', async (req: any) => { const b = req.body || {}; const base = (b.argusBaseUrl || DEFAULT_ARGUS).replace(/\/$/, ''); try { const r = await fetch(`${base}/api/v1/inspections/${encodeURIComponent(b.inspectionId)}`); return { reachable: true, status: r.status, body: (await r.text()).slice(0, 500) }; } catch (e: any) { return { reachable: false, error: String(e.message || e) }; } });
   app.get('/preview', async (req: any, reply) => { const sim = loadSimulations().find(s => s.model_id === req.query.model_id); const rel = req.query.path || ''; const folderAbs = sim ? path.join(root, sim.folder) : ''; const full = path.join(folderAbs, rel); if (!sim || !full.startsWith(folderAbs)) return reply.code(400).send({ error: 'bad preview' }); const mime: Record<string,string> = { '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.mp4':'video/mp4', '.ply':'application/octet-stream' }; return reply.type(mime[path.extname(full)] || 'application/octet-stream').send(fs.createReadStream(full)); });
-  const webDist = path.join(root, 'apps/web/dist');
+  const webDist = path.join(root, 'src/apps/web/dist');
   if (fs.existsSync(webDist)) await app.register(fastifyStatic, { root: webDist });
   return app;
 }

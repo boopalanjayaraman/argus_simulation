@@ -31,8 +31,8 @@ No Python, model SDK, SAM, rule engine, report renderer, robot controller or aud
 
 ```text
 argus-simulator/
-  apps/web/
-  apps/sender/
+  src/apps/web/
+  src/apps/sender/
   scenarios/
     cvs6000d-blue-demo/
       scenario.json

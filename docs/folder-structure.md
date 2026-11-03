@@ -42,8 +42,14 @@ argus_simulation/
 ## Target layout (created by PRD-S01, not yet present)
 
 ```text
-apps/web/  apps/sender/  scenarios/cvs6000d-blue-demo/{video,photos,pointcloud}/  tests/  scripts/
+src/apps/web/  src/apps/sender/  scenarios/cvs6000d-blue-demo/{video,photos,pointcloud}/  tests/  scripts/
 ```
 
 Do not create these until PRD-S01 is reviewed and given go-ahead.
 Hard boundary: no shared code/DB/runtime with Argus; only Argus public API v1. No media generation, inspection, or ground-truth transmission ever.
+
+## Update — 2026-11-03 (source under src/)
+
+All source code now lives under `src/`: `src/apps/web`, `src/apps/sender`.
+Runtime data (`simulated_data/`, `src/available_simulations.json`) unchanged.
+Build/start commands are unchanged (`npm start`, `docker compose up`).

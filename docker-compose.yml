@@ -7,6 +7,7 @@ services:
     environment:
       SIM_PORT: "4173"
       ARGUS_BASE_URL: ${ARGUS_BASE_URL:-http://host.docker.internal:8000}
+      ARGUS_INGEST_TOKEN: ${ARGUS_INGEST_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SERVICE_NAME: argus-simulator
     extra_hosts: ["host.docker.internal:host-gateway"]

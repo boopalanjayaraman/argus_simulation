@@ -176,8 +176,8 @@ If publicly exposed for the hackathon, configure an ingestion token in the serve
 
 ```text
 argus-simulator/
-  apps/web/           # React frontend
-  apps/sender/        # Node API + scheduler
+  src/apps/web/           # React frontend
+  src/apps/sender/        # Node API + scheduler
   scenarios/          # prepared evidence (may be mounted locally)
   SPEC.md
 ```

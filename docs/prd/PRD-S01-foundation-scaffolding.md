@@ -4,7 +4,7 @@ Status: Implemented (React+TS+Vite+Tailwind web, Fastify+TS sender) · Source: S
 
 ## Specs
 
-- Create target layout: `apps/web/` (React+TS+Vite+Tailwind, one-screen sender), `apps/sender/` (Node 22+TS+Fastify), `scenarios/`, `tests/`, `scripts/`, `.env.example`.
+- Create target layout: `src/apps/web/` (React+TS+Vite+Tailwind, one-screen sender), `src/apps/sender/` (Node 22+TS+Fastify), `scenarios/`, `tests/`, `scripts/`, `.env.example`.
 - Top bar: play icon + **Argus Simulator** · “Prepared evidence replay” · API reachability indicator. Dark compact theme from UX `bundle.css`/`Simulator.dc.html` (reference only, not shipped markup).
 - Sender serves web + local APIs; browser never touches filesystem paths directly. No login, no DB, no GCS.
 
