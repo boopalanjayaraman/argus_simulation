@@ -47,6 +47,19 @@ const CHUNK_CACHE = path.join(root, '.chunks');
 function videoDurationMs(file: string): number {
   try { return Math.round(parseFloat(execFileSync('ffprobe', ['-v','error','-show_entries','format=duration','-of','csv=p=0', file], { encoding: 'utf8' })) * 1000) || 0; } catch { return 0; }
 }
+
+/** Bytes per vertex from a PLY header's property list (vertex element only). */
+export function plyStride(header: string): number {
+  const sizes: Record<string, number> = { char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4, int32: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
+  let stride = 0; let inVertex = false;
+  for (const line of header.split('\n')) {
+    if (line.startsWith('element ')) { inVertex = line.split(/\s+/)[1] === 'vertex'; continue; }
+    if (inVertex && line.startsWith('property ')) { const type = line.split(/\s+/)[1]; if (!(type in sizes)) throw new Error(`Unsupported PLY property type: ${type}`); stride += sizes[type]; }
+  }
+  if (!stride) throw new Error('PLY header has no vertex properties');
+  return stride;
+}
+
 function plyVertexCount(file: string): number {
   const fd = fs.openSync(file, 'r'); const buf = Buffer.alloc(2048); fs.readSync(fd, buf, 0, 2048, 0); fs.closeSync(fd);
   const m = buf.toString('ascii').match(/element vertex (\d+)/); return m ? Number(m[1]) : 0;
@@ -85,10 +98,13 @@ export function materializeChunks(sim: Simulation, events: SimEvent[]): Map<stri
   if (sim.pointcloud) {
     const src = path.join(root, sim.folder, sim.pointcloud.path);
     const data = fs.readFileSync(src); const headerEnd = data.indexOf('end_header\n') + 'end_header\n'.length;
-    const header = data.subarray(0, headerEnd).toString('ascii'); const stride = 16; // x,y,z float32 + 4 uchar
+    const header = data.subarray(0, headerEnd).toString('ascii'); const stride = plyStride(header);
     events.filter(e => e.mediaType === 'pointcloud').forEach(e => {
       const p = path.join(dir, e.name);
-      if (!fs.existsSync(p)) { const start = (e.chunkIndex ?? 0) * POINTCLOUD_CHUNK_POINTS; const count = e.pointCount ?? 0; const h = header.replace(/element vertex \d+/, `element vertex ${count}`); fs.writeFileSync(p, Buffer.concat([Buffer.from(h), data.subarray(headerEnd + start * stride, headerEnd + (start + count) * stride)])); }
+      const start = (e.chunkIndex ?? 0) * POINTCLOUD_CHUNK_POINTS; const count = e.pointCount ?? 0;
+      const expected = headerEnd + count * stride;
+      // Regenerate stale chunks written with a wrong stride.
+      if (!fs.existsSync(p) || fs.statSync(p).size !== expected) { const h = header.replace(/element vertex \d+/, `element vertex ${count}`); fs.writeFileSync(p, Buffer.concat([Buffer.from(h), data.subarray(headerEnd + start * stride, headerEnd + (start + count) * stride)])); }
       e.path = path.relative(root, p); e.size = fs.statSync(p).size;
     });
   }

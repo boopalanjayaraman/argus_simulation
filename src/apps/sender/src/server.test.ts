@@ -46,3 +46,14 @@ describe('simulator', () => {
     expect(received.some(r => /synthetic/.test(r.body))).toBe(true);
   });
 });
+
+import { plyStride } from './server.js';
+describe('plyStride', () => {
+  test('sums vertex property sizes from the header', () => {
+    const header = ['ply', 'format binary_little_endian 1.0', 'element vertex 50000',
+      'property float x', 'property float y', 'property float z',
+      'property uchar red', 'property uchar green', 'property uchar blue',
+      'property uchar scanner_id', 'property uchar intensity', 'end_header'].join('\n');
+    expect(plyStride(header)).toBe(17);
+  });
+});
